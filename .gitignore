@@ -1,0 +1,9 @@
+# Exported session data
+.llm/
+# Legacy path (kept for backwards compatibility)
+.agentsensei/opencode-history/
+.opencode-history/
+
+# Python
+__pycache__/
+*.py[cod]

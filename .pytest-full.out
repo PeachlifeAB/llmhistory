@@ -1,0 +1,70 @@
+................FFF..F.FFFF
+=================================== FAILURES ===================================
+_______________ test_compactions_file_includes_only_compactions ________________
+tests/test_compactions_export.py:74: in test_compactions_file_includes_only_compactions
+    assert compactions_path.is_file()
+E   AssertionError: assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_compactions_file_includes0/repo/.llm/T-compactions.md').is_file
+___________________ test_compactions_file_is_force_refreshed ___________________
+tests/test_compactions_export.py:130: in test_compactions_file_is_force_refreshed
+    assert "Compaction v1" in compactions_path.read_text(encoding="utf-8")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/pathlib.py:1013: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_compactions_file_is_force0/repo/.llm/T-compactions.md'
+_________ test_compactions_file_does_not_grow_when_no_new_compactions __________
+tests/test_compactions_no_update_spam.py:55: in test_compactions_file_does_not_grow_when_no_new_compactions
+    assert compactions_path.is_file()
+E   AssertionError: assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_compactions_file_does_not0/repo/.llm/T-compactions.md').is_file
+_____ test_default_export_prefers_exact_worktree_project_over_parent_match _____
+tests/test_default_latest_project_selection.py:73: in test_default_export_prefers_exact_worktree_project_over_parent_match
+    assert (history_dir / "Old.md").is_file()
+E   AssertionError: assert False
+E    +  where False = is_file()
+E    +    where is_file = (PosixPath('/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_default_export_prefers_ex0/repo/.llm') / 'Old.md').is_file
+_____________________ test_force_refresh_json_latest_only ______________________
+tests/test_force_refresh.py:95: in test_force_refresh_json_latest_only
+    assert jsonl1.exists()
+E   AssertionError: assert False
+E    +  where False = exists()
+E    +    where exists = PosixPath('/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_force_refresh_json_latest0/repo/.llm/Session1.jsonl').exists
+_____________________ test_force_refresh_json_all_sessions _____________________
+tests/test_force_refresh.py:156: in test_force_refresh_json_all_sessions
+    assert lines_before_1 >= 2  # original + garbage
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   assert 1 >= 2
+______________________ test_force_refresh_md_latest_only _______________________
+tests/test_force_refresh.py:202: in test_force_refresh_md_latest_only
+    assert md1.exists()
+E   AssertionError: assert False
+E    +  where False = exists()
+E    +    where exists = PosixPath('/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_force_refresh_md_latest_o0/repo/.llm/Session1.md').exists
+______________________ test_force_refresh_md_all_sessions ______________________
+tests/test_force_refresh.py:248: in test_force_refresh_md_all_sessions
+    md1.write_text(md1.read_text() + "\n<!-- GARBAGE1 -->\n")
+                   ^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/pathlib.py:1013: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/1h/3fznsl953jj0lwcl8ztzs47w0000gn/T/pytest-of-davidaberg/pytest-9/test_force_refresh_md_all_sess0/repo/.llm/Session1.md'
+=========================== short test summary info ============================
+FAILED tests/test_compactions_export.py::test_compactions_file_includes_only_compactions
+FAILED tests/test_compactions_export.py::test_compactions_file_is_force_refreshed
+FAILED tests/test_compactions_no_update_spam.py::test_compactions_file_does_not_grow_when_no_new_compactions
+FAILED tests/test_default_latest_project_selection.py::test_default_export_prefers_exact_worktree_project_over_parent_match
+FAILED tests/test_force_refresh.py::test_force_refresh_json_latest_only - Ass...
+FAILED tests/test_force_refresh.py::test_force_refresh_json_all_sessions - as...
+FAILED tests/test_force_refresh.py::test_force_refresh_md_latest_only - Asser...
+FAILED tests/test_force_refresh.py::test_force_refresh_md_all_sessions - File...
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 8 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+8 failed, 19 passed, 1 deselected in 0.82s

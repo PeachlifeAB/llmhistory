@@ -26,6 +26,50 @@ def _encode_path_to_dirname(path: str) -> str:
     return path.replace("/", "-").replace(".", "-")
 
 
+def _path_string_variants(path: Path) -> list[str]:
+    raw = str(path)
+    variants = [raw]
+    if raw.startswith("/private/"):
+        variants.append(raw.removeprefix("/private"))
+    elif raw.startswith("/"):
+        variants.append(f"/private{raw}")
+    return list(dict.fromkeys(variants))
+
+
+
+def _encoded_existing_descendant_matches(project_id: str, root: Path) -> bool:
+    root_encoded = _encode_path_to_dirname(str(root))
+    if project_id == root_encoded:
+        return True
+    if not project_id.startswith(root_encoded + "-") or not root.is_dir():
+        return False
+
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            children = list(current.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.name == ".git" or not child.is_dir():
+                continue
+            child_encoded = _encode_path_to_dirname(str(child))
+            if project_id == child_encoded:
+                return True
+            if project_id.startswith(child_encoded + "-"):
+                stack.append(child)
+    return False
+
+
+def _project_id_matches_worktree(project_id: str, worktree: Path) -> bool:
+    return any(
+        _encoded_existing_descendant_matches(project_id, Path(variant))
+        for variant in _path_string_variants(worktree)
+    )
+
+
+
 def _parse_iso_timestamp(ts: str) -> int:
     if not ts:
         return 0
@@ -127,27 +171,16 @@ class ClaudeSource(StorageSource):
         if not storage.is_dir():
             return []
 
-        prefixes = set()
-        for worktree in self._get_git_worktrees(root):
-            worktree_str = str(worktree)
-            prefixes.add(_encode_path_to_dirname(worktree_str))
-            if worktree_str.startswith("/private"):
-                prefixes.add(
-                    _encode_path_to_dirname(worktree_str.removeprefix("/private")),
-                )
-
+        worktrees = self._get_git_worktrees(root)
         matches: list[str] = []
         for entry in storage.iterdir():
             if not entry.is_dir():
                 continue
-            name = entry.name
-            if name in prefixes:
-                matches.append(name)
-                continue
-            for prefix in prefixes:
-                if name.startswith(prefix + "-"):
-                    matches.append(name)
-                    break
+            if any(
+                _project_id_matches_worktree(entry.name, worktree)
+                for worktree in worktrees
+            ):
+                matches.append(entry.name)
         return matches
 
     @override
@@ -160,7 +193,6 @@ class ClaudeSource(StorageSource):
         debug: object,
     ) -> list[SessionRef]:
         """Load candidate Claude sessions for a project ID."""
-        _ = root
         _ = debug
         project_dir = storage / project_id
         if not project_dir.is_dir():

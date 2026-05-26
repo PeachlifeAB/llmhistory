@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import shutil
-import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from llmhistory import _db
 from llmhistory.confirm import confirm_or_die
 from llmhistory.duration import parse_duration
 from llmhistory.export_discovery import (
@@ -57,25 +57,23 @@ def _iter_all_sessions_from_db(
     if not db_path.exists():
         return []
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            cur = conn.execute("SELECT project_id, id, time_updated FROM session")
-            rows: list[tuple[str, str, Path, float]] = []
-            for project_id, session_id, time_updated_ms in cur.fetchall():
-                fake_path = storage / "session" / str(project_id) / f"{session_id}.json"
-                if time_updated_ms is None:
-                    try:
-                        updated_s = fake_path.stat().st_mtime
-                    except OSError:
-                        continue
-                else:
-                    updated_s = int(time_updated_ms) / 1000.0
-                rows.append((str(project_id), str(session_id), fake_path, updated_s))
-            return rows
-        finally:
-            conn.close()
-    except sqlite3.Error:
+        raw = _db.query_tuples(
+            db_path, "SELECT project_id, id, time_updated FROM session"
+        )
+    except _db.sqlite3.Error:
         return []
+    rows: list[tuple[str, str, Path, float]] = []
+    for project_id, session_id, time_updated_ms in raw:
+        fake_path = storage / "session" / str(project_id) / f"{session_id}.json"
+        if time_updated_ms is None:
+            try:
+                updated_s = fake_path.stat().st_mtime
+            except OSError:
+                continue
+        else:
+            updated_s = int(time_updated_ms) / 1000.0
+        rows.append((str(project_id), str(session_id), fake_path, updated_s))
+    return rows
 
 
 def _iter_all_sessions(storage: Path) -> list[tuple[str, str, Path, float]]:

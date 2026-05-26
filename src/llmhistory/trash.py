@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import shutil
-import sqlite3
 import sys
 from pathlib import Path
 
+from llmhistory import _db
 from llmhistory.utils import eprint
 
 
@@ -162,13 +162,7 @@ def _delete_session_from_db(storage: Path, session_id: str) -> bool:
     if not db_path.exists():
         return False
     try:
-        conn = sqlite3.connect(str(db_path))
-        try:
-            cur = conn.execute("DELETE FROM session WHERE id = ?", (session_id,))
-            conn.commit()
-            return cur.rowcount > 0
-        finally:
-            conn.close()
-    except sqlite3.Error as exc:
+        return _db.execute_write(db_path, "DELETE FROM session WHERE id = ?", (session_id,)) > 0
+    except _db.sqlite3.Error as exc:
         eprint(f"warning: failed to delete session {session_id} from DB: {exc}")
         return False

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any, override
 
+from llmhistory import _db
 from llmhistory.message_parse import parse_message_file
 from llmhistory.models import Message, SessionExport, SessionRef
 from llmhistory.parts import load_parts
@@ -54,6 +54,15 @@ _SESSIONS_BY_PROJECT_SQL = (
 )
 
 
+def _is_default_storage(storage: Path) -> bool:
+    try:
+        return storage.resolve(strict=False) == DEFAULT_OPENCODE_STORAGE.resolve(
+            strict=False,
+        )
+    except OSError:
+        return storage == DEFAULT_OPENCODE_STORAGE
+
+
 def _sql_with_session_id(sql: str, session_id: str) -> str:
     escaped_sid = session_id.replace("'", "''")
     return sql.replace("__SID__", escaped_sid)
@@ -76,9 +85,10 @@ class OpenCodeSource(StorageSource):
 
     def resolve_project_ids(self, storage: Path, root: Path) -> list[str]:
         """Resolve project IDs for a repository root, trying DB first."""
-        db_ids = self._resolve_project_ids_from_db(root)
-        if db_ids:
-            return db_ids
+        if _is_default_storage(storage):
+            db_ids = self._resolve_project_ids_from_db(root)
+            if db_ids:
+                return db_ids
         return oc_resolve_project_ids(storage, root)
 
     def _resolve_project_ids_from_db(self, root: Path) -> list[str]:
@@ -125,14 +135,15 @@ class OpenCodeSource(StorageSource):
         debug: object,
     ) -> list[SessionRef]:
         """Resolve candidate sessions, trying DB first then file storage."""
-        db_sessions = self._resolve_sessions_from_db(
-            storage, project_id, debug=bool(debug)
-        )
-        if db_sessions:
-            if bool(all_sessions):
-                return db_sessions
-            roots = [s for s in db_sessions if s.parent_id is None]
-            return roots[:1] if roots else db_sessions[:1]
+        if _is_default_storage(storage):
+            db_sessions = self._resolve_sessions_from_db(
+                storage, project_id, debug=bool(debug)
+            )
+            if db_sessions:
+                if bool(all_sessions):
+                    return db_sessions
+                roots = [s for s in db_sessions if s.parent_id is None]
+                return roots[:1] if roots else db_sessions[:1]
         return oc_resolve_sessions(
             storage,
             project_id,
@@ -193,13 +204,14 @@ class OpenCodeSource(StorageSource):
     ) -> SessionExport | None:
         """Export a session from DB first, then fallback to storage files."""
         want_tool_calls_bool = bool(want_tool_calls)
-        from_db = self._export_session_from_db(
-            session_ref.sid,
-            session_ref.session_file,
-            want_tool_calls=want_tool_calls_bool,
-        )
-        if from_db is not None:
-            return from_db
+        if _is_default_storage(storage):
+            from_db = self._export_session_from_db(
+                session_ref.sid,
+                session_ref.session_file,
+                want_tool_calls=want_tool_calls_bool,
+            )
+            if from_db is not None:
+                return from_db
         return self._export_session_from_storage(
             storage,
             session_ref,
@@ -219,14 +231,8 @@ class OpenCodeSource(StorageSource):
 
     def _sqlite_query_rows(self, db_path: Path, sql: str) -> list[dict[str, Any]]:
         try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            conn.row_factory = sqlite3.Row
-            try:
-                cur = conn.execute(sql)
-                return [dict(row) for row in cur.fetchall()]
-            finally:
-                conn.close()
-        except sqlite3.Error:
+            return _db.query_rows(db_path, sql)
+        except _db.sqlite3.Error:
             return []
 
     def _cli_query_rows(self, sql: str) -> list[dict[str, Any]]:
@@ -552,9 +558,12 @@ class OpenCodeSource(StorageSource):
         )
 
     def get_session_project_name(self, session_id: str) -> str | None:
+        """Return the OpenCode project directory name for a session."""
         sql = _sql_with_session_id(
-            "SELECT project.worktree FROM session JOIN project ON session.project_id = project.id WHERE session.id='__SID__'", 
-            session_id
+            "SELECT project.worktree FROM session "
+            "JOIN project ON session.project_id = project.id "
+            "WHERE session.id='__SID__'",
+            session_id,
         )
         rows = self._db_query_rows(sql)
         if not rows:

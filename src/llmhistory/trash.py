@@ -161,8 +161,11 @@ def _delete_session_from_db(storage: Path, session_id: str) -> bool:
     db_path = storage.parent / "opencode.db"
     if not db_path.exists():
         return False
+    sql = "DELETE FROM session WHERE id = ?"
     try:
-        return _db.execute_write(db_path, "DELETE FROM session WHERE id = ?", (session_id,)) > 0
+        rows = _db.execute_write(db_path, sql, (session_id,))
     except _db.sqlite3.Error as exc:
         eprint(f"warning: failed to delete session {session_id} from DB: {exc}")
         return False
+    else:
+        return rows > 0

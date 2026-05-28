@@ -12,6 +12,14 @@ _T = TypeVar("_T")
 
 def _add_export_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--all", action="store_true", help="Export all sessions")
+    parser.add_argument(
+        "--latest",
+        action="store_true",
+        help=(
+            "Show latest session and compaction per installed harness. "
+            "When piped, prints the path of the most recently changed session."
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="Export JSONL (.jsonl)")
     parser.add_argument("--md", action="store_true", help="Export Markdown (.md)")
     parser.add_argument(
@@ -42,9 +50,12 @@ def _add_export_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--source",
-        choices=["opencode", "claude", "all"],
-        default="opencode",
-        help="Export source: opencode (default), claude, or all",
+        choices=["opencode", "claude", "codex", "pi", "all"],
+        default="all",
+        help=(
+            "Export source: all installed harnesses (default), "
+            "or one of opencode, claude, codex, pi"
+        ),
     )
     parser.add_argument(
         "--storage",
@@ -66,7 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Export LLM conversation history "
-            "(OpenCode, Claude Desktop) to markdown and JSONL"
+            "(OpenCode, Claude, Codex, Pi) to markdown and JSONL. "
+            "Runs against all installed harnesses by default."
         ),
     )
     parser.add_argument(

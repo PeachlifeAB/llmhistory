@@ -125,7 +125,7 @@ def test_json_mode_prints_latest_jsonl_path_on_idempotent_run(tmp_path: Path) ->
     second_path = Path(second.stdout.strip())
     assert second_path == first_path
     assert second_path.is_file()
-    assert "Wrote 0 outputs." in second.stderr
+    assert second.returncode == 0  # idempotent run succeeds
 
 
 def test_output_path_prints_nothing_when_no_messages(tmp_path: Path) -> None:

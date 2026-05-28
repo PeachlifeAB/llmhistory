@@ -46,7 +46,11 @@ class StorageSource(ABC):
     ) -> SessionExport | None:
         """Export a session into normalized message objects."""
 
-    def get_session_project_name(self, session_id: str) -> str | None:
+    def is_installed(self) -> bool:
+        """Return True if this source's storage path exists on disk."""
+        return self.get_storage_path().exists()
+
+    def get_session_project_name(self, session_id: str) -> str | None:  # noqa: ARG002
         """Return the project name for a session, if available."""
         return None
 

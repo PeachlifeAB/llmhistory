@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-def query_rows(db_path: Path, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+def query_rows(
+    db_path: Path, sql: str, params: tuple[Any, ...] = ()
+) -> list[dict[str, Any]]:
     """Execute *sql* on a read-only connection and return rows as dicts.
 
     The cursor is **always** closed before the connection, preventing the
@@ -44,15 +48,17 @@ def execute_write(
     try:
         cur = conn.execute(sql, params)
         conn.commit()
-        return cur.rowcount
     except BaseException:
         with contextlib.suppress(Exception):
             conn.rollback()
         raise
+    else:
+        return cur.rowcount
     finally:
         if cur is not None:
             cur.close()
         conn.close()
+    return 0  # unreachable; satisfies type checker
 
 
 def query_tuples(

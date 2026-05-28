@@ -10,13 +10,13 @@ from llmhistory import export_source_runner
 from llmhistory.export_source_runner import (
     _PreparedSession,
     _render_prepared_session_statuses,
-    _session_progress_line,
+    _session_progress_lines,
     _SessionOutputPaths,
 )
 from llmhistory.models import SessionExport, SessionRef
 from llmhistory.utils import (
-    _color_bold,
     _color_dim,
+    _color_underline,
     _color_yellow,
     _format_relative_age_ms,
 )
@@ -37,10 +37,10 @@ def test_format_relative_age_ms_uses_minutes_hours_and_days() -> None:
     )
 
 
-def test_session_progress_line_uses_yellow_age_and_bold_title(
+def test_session_progress_lines_root_two_lines(
     monkeypatch: pytest.MonkeyPatch,
- ) -> None:
-    """Style age in yellow and title in bold for root sessions."""
+) -> None:
+    """Root sessions render as two lines: branch+meta then indent+filename."""
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
     prepared = _prepared_session_from(
         {
@@ -51,18 +51,19 @@ def test_session_progress_line_uses_yellow_age_and_bold_title(
             "should_write": True,
         },
     )
-    line = _session_progress_line(prepared, "opencode", now_ms=30 * 60 * 1000)
+    lines = _session_progress_lines(prepared, "opencode", now_ms=30 * 60 * 1000)
 
-    expected_age = _color_yellow("5m", enabled=True)
-    expected_title = _color_bold("My_Session", enabled=True)
-    expected_sid = _color_dim("ses_123", enabled=True)
-    assert line == f"{expected_age} │ {expected_title} {expected_sid}"
+    assert len(lines) == 2
+    assert _color_yellow("5m", enabled=True) in lines[0]
+    assert "└─" in lines[0]
+    assert _color_dim("ses_123", enabled=True) in lines[0]
+    assert _color_underline(".llm/My_Session.md", enabled=True) in lines[1]
 
 
-def test_session_progress_line_without_color(
+def test_session_progress_lines_root_no_color(
     monkeypatch: pytest.MonkeyPatch,
- ) -> None:
-    """Emit plain text when stderr is not a TTY."""
+) -> None:
+    """Root sessions render plain text when stderr is not a TTY."""
     monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
     prepared = _prepared_session_from(
         {
@@ -73,17 +74,18 @@ def test_session_progress_line_without_color(
             "should_write": False,
         },
     )
-    line = _session_progress_line(prepared, "opencode", now_ms=30 * 60 * 1000)
+    lines = _session_progress_lines(prepared, "opencode", now_ms=30 * 60 * 1000)
 
-    expected_age = _color_yellow("5m", enabled=False)
-    expected_title = _color_bold("My_Session", enabled=False)
-    expected_sid = _color_dim("ses_123", enabled=False)
-    assert line == f"{expected_age} │ {expected_title} {expected_sid}"
+    assert len(lines) == 2
+    assert "5m" in lines[0]
+    assert "└─" in lines[0]
+    assert "ses_123" in lines[0]
+    assert ".llm/My_Session.md" in lines[1]
 
 
 def test_render_prepared_session_statuses_groups_opencode_children(
     monkeypatch: pytest.MonkeyPatch,
- ) -> None:
+) -> None:
     """Render parent sessions above child sessions for OpenCode."""
     monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
     monkeypatch.setattr(
@@ -114,20 +116,24 @@ def test_render_prepared_session_statuses_groups_opencode_children(
 
     lines = _render_prepared_session_statuses(source, [child, parent])
 
-    expected_parent = (
-        f"1m │ {_color_bold('Parent', enabled=False)} "
-        f"{_color_dim('ses_parent', enabled=False)}"
-    )
-    expected_child = (
-        f"  0m └─ {_color_bold('Child', enabled=False)} "
-        f"{_color_dim('ses_child', enabled=False)}"
-    )
-    assert lines == [expected_parent, expected_child]
+    # 2 lines for parent + 2 lines for child
+    assert len(lines) == 4
+    # Parent line 1: branch + age + sid
+    assert "└─" in lines[0]
+    assert "1m" in lines[0]
+    assert "ses_parent" in lines[0]
+    # Parent line 2: filename
+    assert ".llm/Parent.md" in lines[1]
+    # Child line 1: indented branch + age + sid
+    assert "0m" in lines[2]
+    assert "ses_child" in lines[2]
+    # Child line 2: filename
+    assert ".llm/Child.md" in lines[3]
 
 
 def test_render_prepared_session_statuses_marks_out_of_scope_roots(
     monkeypatch: pytest.MonkeyPatch,
- ) -> None:
+) -> None:
     """Mark selected roots whose parent exists outside the current scope."""
     monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
     monkeypatch.setattr(
@@ -135,7 +141,10 @@ def test_render_prepared_session_statuses_marks_out_of_scope_roots(
         "_format_relative_age_ms",
         lambda ms, now_ms=None: {120_000: "0m"}[ms],
     )
-    source = SimpleNamespace(source_name="opencode", get_session_project_name=lambda sid: "ExternalProject")
+    source = SimpleNamespace(
+        source_name="opencode",
+        get_session_project_name=lambda sid: "ExternalProject",
+    )
     prepared = _prepared_session_from(
         {
             "sid": "ses_child",
@@ -149,17 +158,18 @@ def test_render_prepared_session_statuses_marks_out_of_scope_roots(
 
     lines = _render_prepared_session_statuses(source, [prepared])
 
-    expected = (
-        f"0m │ {_color_bold('Child', enabled=False)} "
-        f"{_color_dim('ses_child', enabled=False)}"
-    )
-    expected_footer = "ℹ️ 1 sessions was started in different folders: ExternalProject (1)"
-    assert lines == [expected, "", _color_dim(expected_footer, enabled=False)]
+    # 2 session lines + blank + footer
+    assert len(lines) == 4
+    assert "0m" in lines[0]
+    assert "ses_child" in lines[0]
+    assert ".llm/Child.md" in lines[1]
+    assert lines[2] == ""
+    assert "ExternalProject" in lines[3]
 
 
 def test_render_prepared_session_statuses_keeps_claude_flat(
     monkeypatch: pytest.MonkeyPatch,
- ) -> None:
+) -> None:
     """Keep non-OpenCode sources flat because they lack session hierarchy."""
     monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
     monkeypatch.setattr(
@@ -190,11 +200,11 @@ def test_render_prepared_session_statuses_keeps_claude_flat(
 
     lines = _render_prepared_session_statuses(source, [parent, child])
 
-    expected = (
-        f"0m │ {_color_bold('Child', enabled=False)} "
-        f"{_color_dim('ses_child', enabled=False)}"
-    )
-    assert lines == [expected]
+    # Only selected child, 2 lines
+    assert len(lines) == 2
+    assert "0m" in lines[0]
+    assert "ses_child" in lines[0]
+    assert ".llm/Child.md" in lines[1]
 
 
 def _prepared_session_from(values: dict[str, object]) -> _PreparedSession:
@@ -205,7 +215,7 @@ def _prepared_session_from(values: dict[str, object]) -> _PreparedSession:
     should_write = bool(values["should_write"])
     parent_id_value = values.get("parent_id")
     parent_id = str(parent_id_value) if parent_id_value is not None else None
-    base = Path("fixtures") / sid
+    base = Path("fixtures") / title
     sort_key = updated_ms / 1000.0
     return _PreparedSession(
         session_ref=SessionRef(

@@ -1,6 +1,7 @@
 """CLI export workflow orchestration."""
 
 import argparse
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -9,9 +10,23 @@ from pathlib import Path
 from llmhistory.cli_io import do_pbcopy, print_file_to_stdout, write_line_to_stdout
 from llmhistory.export_source_runner import SourceExportContext, export_single_source
 from llmhistory.projects import git_root
-from llmhistory.sources import ClaudeSource, OpenCodeSource, StorageSource
+from llmhistory.sources import (
+    ClaudeSource,
+    CodexSource,
+    OpenCodeSource,
+    PiSource,
+    StorageSource,
+)
 from llmhistory.storage_index import load_index, save_index_atomic
-from llmhistory.utils import die, eprint, get_history_dir
+from llmhistory.utils import (
+    COLOR_CYAN,
+    COLOR_GRAY,
+    COLOR_UNDERLINE,
+    _color,
+    die,
+    eprint,
+    get_history_dir,
+)
 
 
 def _latest_file(path_pattern: str, history_dir: Path) -> Path | None:
@@ -63,12 +78,15 @@ def _first_markdown_file(history_dir: Path) -> Path | None:
 
 
 def _resolve_sources(source_selection: str) -> list[StorageSource]:
-    sources: list[StorageSource] = []
-    if source_selection in ("opencode", "all"):
-        sources.append(OpenCodeSource())
-    if source_selection in ("claude", "all"):
-        sources.append(ClaudeSource())
-    return sources
+    all_sources: list[StorageSource] = [
+        OpenCodeSource(),
+        ClaudeSource(),
+        CodexSource(),
+        PiSource(),
+    ]
+    if source_selection == "all":
+        return [s for s in all_sources if s.is_installed()]
+    return [s for s in all_sources if s.source_name == source_selection]
 
 
 @dataclass(frozen=True)
@@ -125,15 +143,28 @@ def _latest_path(paths: list[Path]) -> Path | None:
     return max(paths, key=lambda path: path.stat().st_mtime) if paths else None
 
 
-def _resolve_recent_paths(
+def _best_md_path(md_paths_with_ms: list[tuple[int, Path]]) -> Path | None:
+    """Pick the md path whose session has the highest updated_ms."""
+    existing = [(ms, p) for ms, p in md_paths_with_ms if p.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda t: t[0])[1]
+
+
+def _resolve_recent_paths(  # noqa: PLR0913
     history_dir: Path,
     generated_md_paths: list[Path],
     generated_json_paths: list[Path],
     generated_compactions_paths: list[Path],
+    md_paths_with_ms: list[tuple[int, Path]],
     *,
     all_sessions: bool,
 ) -> RecentPaths:
-    latest_generated_md = _latest_path(_existing_paths(generated_md_paths))
+    # Use session updated_ms to pick the most recent across sources (file mtime is
+    # unreliable when multiple sources write files in the same second)
+    latest_generated_md = _best_md_path(md_paths_with_ms) or _latest_path(
+        _existing_paths(generated_md_paths)
+    )
     latest_generated_json = _latest_path(_existing_paths(generated_json_paths))
     latest_generated_compactions = _latest_path(
         _existing_paths(generated_compactions_paths),
@@ -227,6 +258,24 @@ def _emit_outputs_in_quiet_mode(
             print_file_to_stdout(path)
 
 
+def _print_last_session(
+    args: argparse.Namespace,
+    full_path: Path,
+    label: str = "Last session",
+) -> None:
+    """Print a labelled footer to stderr; write full path to stdout only when piped."""
+    eprint(f"▸ {_color(label, COLOR_CYAN)}")
+    eprint(_color("─" * 49, COLOR_GRAY))
+    if full_path.is_relative_to(Path.cwd()):
+        display = str(full_path.relative_to(Path.cwd()))
+    else:
+        display = str(full_path)
+    eprint(f"  {_color(display, COLOR_UNDERLINE)}")
+    if not sys.stdout.isatty():
+        write_line_to_stdout(str(full_path))
+    do_pbcopy(str(full_path), no_pbcopy=args.no_pbcopy, debug=args.debug)
+
+
 def _copy_default_result(
     args: argparse.Namespace,
     recent_paths: RecentPaths,
@@ -236,31 +285,23 @@ def _copy_default_result(
     output_md: bool,
 ) -> None:
     if compactions_only and recent_paths.most_recent_compactions_md_path is not None:
-        write_line_to_stdout(str(recent_paths.most_recent_compactions_md_path))
-        do_pbcopy(
-            str(recent_paths.most_recent_compactions_md_path),
-            no_pbcopy=args.no_pbcopy,
-            debug=args.debug,
+        _print_last_session(
+            args, recent_paths.most_recent_compactions_md_path,
+            "Last compaction",
         )
         return
 
     if output_json and not output_md:
         json_path = recent_paths.latest_generated_json or recent_paths.first_json_path
         if json_path is not None:
-            write_line_to_stdout(str(json_path))
-            do_pbcopy(str(json_path), no_pbcopy=args.no_pbcopy, debug=args.debug)
+            _print_last_session(args, json_path, "Last session")
         return
 
     if recent_paths.most_recent_md_path is not None:
-        write_line_to_stdout(str(recent_paths.most_recent_md_path))
-        do_pbcopy(
-            str(recent_paths.most_recent_md_path),
-            no_pbcopy=args.no_pbcopy,
-            debug=args.debug,
-        )
+        _print_last_session(args, recent_paths.most_recent_md_path)
 
 
-def run_export(args: argparse.Namespace) -> int:
+def run_export(args: argparse.Namespace) -> int:  # noqa: C901
     """Export sessions for selected source(s) according to CLI flags."""
     run_started_at = datetime.now(UTC)
     run_started_perf = time.perf_counter()
@@ -273,7 +314,9 @@ def run_export(args: argparse.Namespace) -> int:
         compactions_only=compactions_only,
     )
 
-    if not args.quiet and not args.output:
+    latest_mode = getattr(args, "latest", False)
+
+    if not args.quiet and not args.output and not latest_mode and args.debug:
         eprint(f"🕒 Run started: {run_started_at.strftime('%Y-%m-%dT%H:%M:%SZ')}")
 
     root = git_root()
@@ -285,8 +328,15 @@ def run_export(args: argparse.Namespace) -> int:
     generated_md_paths: list[Path] = []
     generated_json_paths: list[Path] = []
     generated_compactions_paths: list[Path] = []
+    # Per-source latest paths for --latest display and cross-source recency ranking
+    latest_per_source: list[tuple[str, Path, Path | None]] = []
+    # (updated_ms, md_path) pairs for picking the globally most-recent session
+    md_paths_with_ms: list[tuple[int, Path]] = []
 
-    for source in _resolve_sources(getattr(args, "source", "opencode")):
+    source_selection = getattr(args, "source", "all")
+    is_all_mode = source_selection == "all"
+
+    for source in _resolve_sources(source_selection):
         storage = (
             Path(args.storage)
             if source.source_name == "opencode"
@@ -298,6 +348,7 @@ def run_export(args: argparse.Namespace) -> int:
             source_recent_md_path,
             source_recent_json_path,
             source_recent_compactions_path,
+            source_most_recent_updated_ms,
         ) = export_single_source(
             source=source,
             context=SourceExportContext(
@@ -309,6 +360,8 @@ def run_export(args: argparse.Namespace) -> int:
                 output_md=output_md,
                 output_json=output_json,
                 compactions_only=compactions_only,
+                warn_if_no_projects=not is_all_mode,
+                show_source_header=is_all_mode,
             ),
         )
         written_outputs.extend(source_outputs)
@@ -316,6 +369,14 @@ def run_export(args: argparse.Namespace) -> int:
             most_recent_session_id = source_recent_session_id
         if source_recent_md_path is not None:
             generated_md_paths.append(source_recent_md_path)
+            md_paths_with_ms.append(
+                (source_most_recent_updated_ms, source_recent_md_path)
+            )
+            latest_per_source.append((
+                source.source_name,
+                source_recent_md_path,
+                source_recent_compactions_path,
+            ))
         if source_recent_json_path is not None:
             generated_json_paths.append(source_recent_json_path)
         if source_recent_compactions_path is not None:
@@ -328,8 +389,12 @@ def run_export(args: argparse.Namespace) -> int:
         generated_md_paths,
         generated_json_paths,
         generated_compactions_paths,
+        md_paths_with_ms,
         all_sessions=args.all,
     )
+
+    if getattr(args, "latest", False):
+        return _handle_latest(args, latest_per_source, recent_paths)
 
     if _handle_output_shortcuts(
         args,
@@ -347,8 +412,9 @@ def run_export(args: argparse.Namespace) -> int:
 
     if not args.quiet:
         elapsed_s = time.perf_counter() - run_started_perf
-        eprint(f"🎉 Complete. Wrote {len(written_outputs)} outputs.")
-        eprint(f"⏱️ Execution time: {elapsed_s:.2f}s")
+        if args.debug:
+            eprint(f"🎉 Complete. Wrote {len(written_outputs)} outputs.")
+            eprint(f"⏱️ Execution time: {elapsed_s:.2f}s")
         _copy_default_result(
             args,
             recent_paths,
@@ -356,5 +422,35 @@ def run_export(args: argparse.Namespace) -> int:
             output_json=output_json,
             output_md=output_md,
         )
+
+    return 0
+
+
+def _handle_latest(
+    args: argparse.Namespace,
+    latest_per_source: list[tuple[str, Path, Path | None]],
+    recent_paths: RecentPaths,
+) -> int:
+    """Handle --latest: show latest session + compaction per harness."""
+    is_piped = not sys.stdout.isatty()
+
+    if is_piped:
+        # Pipe mode: print the single most recently changed session path
+        path = recent_paths.most_recent_md_path or recent_paths.first_md_path
+        if path is not None:
+            write_line_to_stdout(str(path))
+        return 0
+
+    # Interactive mode: show latest session and compaction per harness
+    for source_name, md_path, compaction_path in latest_per_source:
+        eprint(f"[{source_name}] {md_path}")
+        if compaction_path is not None and compaction_path.exists():
+            eprint(f"[{source_name}] compaction: {compaction_path}")
+
+    # Still output the most recent path to stdout and clipboard
+    path = recent_paths.most_recent_md_path or recent_paths.first_md_path
+    if path is not None:
+        write_line_to_stdout(str(path))
+        do_pbcopy(str(path), no_pbcopy=args.no_pbcopy, debug=args.debug)
 
     return 0

@@ -88,50 +88,59 @@ def _format_relative_age_ms(ms: int | None, *, now_ms: int | None = None) -> str
     return f"{delta_days}d"
 
 
-def _color_red(text: str, *, enabled: bool | None = None) -> str:
+def _color(text: str, code: int, *, enabled: bool | None = None) -> str:
+    """Apply an ANSI color code to text, respecting terminal detection."""
     color_enabled = sys.stderr.isatty() if enabled is None else enabled
     if not color_enabled:
         return text
-    return f"\x1b[31m{text}\x1b[0m"
+    return f"\x1b[{code}m{text}\x1b[0m"
+
+
+# Named color constants
+COLOR_BOLD = 1
+COLOR_UNDERLINE = 4
+COLOR_GRAY = 90
+COLOR_YELLOW = 33
+COLOR_MAGENTA = 35
+COLOR_CYAN = 36
+
+
+def _color_red(text: str, *, enabled: bool | None = None) -> str:
+    return _color(text, 31, enabled=enabled)
 
 
 def _color_gray(text: str, *, enabled: bool | None = None) -> str:
-    color_enabled = sys.stderr.isatty() if enabled is None else enabled
-    if not color_enabled:
-        return text
-    return f"\x1b[90m{text}\x1b[0m"
+    return _color(text, COLOR_GRAY, enabled=enabled)
 
 
 def _color_dim(text: str, *, enabled: bool | None = None) -> str:
     """Apply dim/bright styling (ANSI code 2)."""
-    color_enabled = sys.stderr.isatty() if enabled is None else enabled
-    if not color_enabled:
-        return text
-    return f"\x1b[2m{text}\x1b[0m"
+    return _color(text, 2, enabled=enabled)
+
+
+def _color_magenta(text: str, *, enabled: bool | None = None) -> str:
+    """Apply magenta color for agent badges."""
+    return _color(text, COLOR_MAGENTA, enabled=enabled)
 
 
 def _color_cyan(text: str, *, enabled: bool | None = None) -> str:
-    """Apply cyan color for agent badges."""
-    color_enabled = sys.stderr.isatty() if enabled is None else enabled
-    if not color_enabled:
-        return text
-    return f"\x1b[36m{text}\x1b[0m"
+    """Apply cyan color for source headers."""
+    return _color(text, COLOR_CYAN, enabled=enabled)
 
 
 def _color_yellow(text: str, *, enabled: bool | None = None) -> str:
     """Apply yellow color for age badges."""
-    color_enabled = sys.stderr.isatty() if enabled is None else enabled
-    if not color_enabled:
-        return text
-    return f"\x1b[33m{text}\x1b[0m"
+    return _color(text, COLOR_YELLOW, enabled=enabled)
 
 
 def _color_bold(text: str, *, enabled: bool | None = None) -> str:
     """Apply bold styling."""
-    color_enabled = sys.stderr.isatty() if enabled is None else enabled
-    if not color_enabled:
-        return text
-    return f"\x1b[1m{text}\x1b[0m"
+    return _color(text, COLOR_BOLD, enabled=enabled)
+
+
+def _color_underline(text: str, *, enabled: bool | None = None) -> str:
+    """Apply underline styling."""
+    return _color(text, COLOR_UNDERLINE, enabled=enabled)
 
 
 def get_history_dir(root: Path) -> Path:

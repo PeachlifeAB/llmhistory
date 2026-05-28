@@ -31,7 +31,7 @@ def test_editable_install_cli_is_executable(tmp_path: Path) -> None:
 
     # Install from working tree, keep it installed for user validation
     subprocess.check_call(
-        ["uv", "tool", "install", "--force", "--editable", str(repo_root)],
+        ["uv", "tool", "install", "--force", str(repo_root)],
     )
 
     # Print version for visibility (first thing after date)
@@ -63,7 +63,7 @@ def test_editable_install_cli_is_executable(tmp_path: Path) -> None:
     assert "--help" in result.stdout
 
 
-def test_editable_install_version_format(tmp_path: Path) -> None:
+def test_editable_install_version_format(tmp_path: Path) -> None:  # noqa: C901
     """Emit version string with expected git hash and timestamp segments."""
     if sys.platform.startswith("win"):
         pytest.skip("Windows not supported by this test")
@@ -86,7 +86,7 @@ def test_editable_install_version_format(tmp_path: Path) -> None:
 
     # Install from working tree, keep it installed for user validation
     subprocess.check_call(
-        ["uv", "tool", "install", "--force", "--editable", str(repo_root)],
+        ["uv", "tool", "install", "--force", str(repo_root)],
     )
 
     out = (
@@ -120,15 +120,26 @@ def test_editable_install_version_format(tmp_path: Path) -> None:
             msg,
         )
 
-    if ".d20" not in out:
-        msg = f"Version should contain '.d20' for timestamp: {out}"
+    # Version contains .devN distance from tag (e.g. 0.1.2.dev8+gd90ea87c8)
+    if ".dev" not in out:
+        msg = f"Version should contain '.dev' for distance from tag: {out}"
         raise AssertionError(msg)
-    timestamp = out.rsplit(".d", 1)[1]
+
+    # Also verify the dev-venv version (uv run) has the full timestamp.
+    # uv tool install strips local segments, so check importlib.metadata directly.
+    venv_ver = subprocess.check_output(
+        ["uv", "run", "python", "-c",
+         "from importlib.metadata import version; print(version('llmhistory'))"],
+        cwd=repo_root,
+        env={**os.environ, "PYTHONUTF8": "1"},
+    ).decode().strip()
+    if ".d20" not in venv_ver:
+        msg = f"Dev-venv version should contain '.d20' timestamp: {venv_ver}"
+        raise AssertionError(msg)
+    timestamp = venv_ver.rsplit(".d", 1)[1]
     if len(timestamp) != 14:
         msg = f"Timestamp should be 14 chars, got {len(timestamp)}: {timestamp}"
-        raise AssertionError(
-            msg,
-        )
-    if not (timestamp.isdigit()):
+        raise AssertionError(msg)
+    if not timestamp.isdigit():
         msg = f"Timestamp should be all digits: {timestamp}"
         raise AssertionError(msg)

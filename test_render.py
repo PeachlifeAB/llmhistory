@@ -1,22 +1,25 @@
-import os
-import sys
-from collections import namedtuple
 
 # mock sys.argv if needed
-from llmhistory.export_source_runner import _render_prepared_session_statuses, _PreparedSession, _SessionOutputPaths
-from llmhistory.models import SessionExport, SessionRef
 from pathlib import Path
 
-def test_run():
+from llmhistory.export_source_runner import (
+    _PreparedSession,
+    _render_prepared_session_statuses,
+    _SessionOutputPaths,
+)
+from llmhistory.models import SessionExport, SessionRef
+
+
+def test_run() -> None:
     # 1. Setup a dummy source
     class DummySource:
-        def __init__(self):
+        def __init__(self) -> None:
             self.source_name = "opencode"
-        def get_session_project_name(self, sid):
+        def get_session_project_name(self, sid) -> str:
             return "SuperProject"
-    
+
     source = DummySource()
-    
+
     # 2. Setup an out-of-scope session
     updated_ms = 1711234567000
     sort_key = updated_ms / 1000.0
@@ -43,11 +46,11 @@ def test_run():
         is_selected=True,
         should_write=False
     )
-    
+
     # 3. Call rendering
     lines = _render_prepared_session_statuses(source, [session])
-    for line in lines:
-        print(line)
+    for _line in lines:
+        pass
 
 if __name__ == "__main__":
     test_run()

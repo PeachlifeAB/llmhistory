@@ -1,7 +1,7 @@
 [project]
 name = "llmhistory"
 dynamic = ["version"]
-description = "Export LLM conversation history (OpenCode, Claude Desktop) to markdown and JSONL"
+description = "Export LLM conversation history (opencode, pi, claude, codex) to markdown and JSONL"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -36,3 +36,5 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S603", "S607", "PLR2004", "PLW1510", "RUF059", "ARG"]
+"scripts/*" = ["INP001"]
+"test_render.py" = ["INP001", "D", "ANN", "ARG", "T201"]

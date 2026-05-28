@@ -1,0 +1,88 @@
+# Project tasks. Run with: mise run <task>
+#
+# Conventions:
+#   - references:* tasks operate on top-level symlinks in ./references/.
+#   - Reference repos are read-only. Allowed git ops: fetch, pull, checkout.
+
+[tasks."repo:overview"]
+description = "README head, tree view of the repo (depth 2), and available tasks"
+run = """
+if [ -f README.md ]; then
+  echo "== README.md =="
+  head -n 100 README.md
+  echo
+fi
+eza --tree --level 2
+echo
+mise tasks
+"""
+
+[tasks."repo:recent"]
+description = "Recently changed files, last 2 commits, and working tree status"
+run = """
+fd --changed-within 1h
+git log -n 2
+git status
+"""
+
+[tasks."references:overview"]
+description = "Print each ./references/<symlink>/README.md path and its first 50 lines"
+run = """
+set -u
+shopt -s nullglob
+for dir in references/*/; do
+  readme="$dir/README.md"
+  if [ -f "$readme" ]; then
+    echo "== $readme =="
+    head -n 50 "$readme"
+    echo
+  else
+    echo "== $dir (no README.md) =="
+    echo
+  fi
+done
+"""
+
+[tasks."references:recent"]
+description = "git pull each ./references/<symlink> and show its latest CHANGELOG.md diff (or 3 latest commit titles)"
+run = """
+set -u
+shopt -s nullglob
+for dir in references/*/; do
+  link="${dir%/}"
+  name="$(basename "$link")"
+  echo "== $name =="
+  if ! git -C "$link" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "  (not a git repo, skipping)"
+    echo
+    continue
+  fi
+  git -C "$link" pull --ff-only 2>&1 | sed 's/^/  /'
+  if [ -f "$link/CHANGELOG.md" ]; then
+    git -C "$link" log -1 -p -- CHANGELOG.md
+  else
+    echo "  (no CHANGELOG.md — last 3 commits):"
+    git -C "$link" log -3 --pretty=format:'  %h %s'
+    echo
+  fi
+  echo
+done
+"""
+
+[tasks."wiki:overview"]
+description = "Print each ./wiki/<symlink>/index.md"
+run = """
+set -u
+shopt -s nullglob
+for dir in wiki/*/; do
+  index="$dir/index.md"
+  if [ -f "$index" ]; then
+    echo "== $index =="
+    head -n 100 "$index"
+    echo
+  else
+    echo "== $dir (no index.md) =="
+    echo
+  fi
+done
+"""

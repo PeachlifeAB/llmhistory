@@ -14,9 +14,12 @@ from llmhistory.formatting import (
 )
 from llmhistory.storage_index import get_export_state, update_export_state
 from llmhistory.utils import (
-    _color_bold,
-    _color_cyan,
+    COLOR_CYAN,
+    COLOR_GRAY,
+    COLOR_MAGENTA,
+    _color,
     _color_dim,
+    _color_underline,
     _color_yellow,
     _format_relative_age_ms,
     eprint,
@@ -64,28 +67,49 @@ def _nested_display_title(prepared: _PreparedSession) -> str:
     if agent_label and title.endswith(f"_{agent_label}"):
         title = title[: -(len(agent_label) + 1)]
     if agent_label:
-        badge = _color_cyan(f"[{agent_label}]")
+        badge = _color(f"[{agent_label}]", COLOR_MAGENTA)
         return f"{badge} {title}"
     return title
 
 
-def _session_progress_line(
+_SEPARATOR = "─" * 49
+
+
+def _session_progress_lines(
     prepared: _PreparedSession,
     source_name: str,  # noqa: ARG001
     now_ms: int | None = None,
     *,
     depth: int = 0,
-) -> str:
+    is_last_child: bool = True,
+) -> list[str]:
     age = _format_relative_age_ms(prepared.exported.updated_ms, now_ms=now_ms)
     age_styled = _color_yellow(age)
-    title = prepared.safe_title if depth == 0 else _nested_display_title(prepared)
     sid_display = _color_dim(prepared.session_ref.sid)
-    title_styled = _color_bold(title)
-    body = f"{title_styled} {sid_display}"
+    stem = prepared.paths.md_path.stem
+    # Strip _subagent and agent label suffixes added by OpenCode for display only
+    agent_label_for_strip = _session_agent_label(prepared)
+    if agent_label_for_strip:
+        stem = re.sub(rf"_{re.escape(agent_label_for_strip)}_subagent$", "", stem)
+        stem = re.sub(r"_subagent$", "", stem)
+    else:
+        stem = re.sub(r"_subagent$", "", stem)
+    filename = _color_underline(f".llm/{stem}.md")
 
-    prefix = "│ " if depth == 0 else "└─ "
-    indent = "  " * depth if depth > 0 else ""
-    return f"{indent}{age_styled} {prefix}{body}"
+    if depth == 0:
+        branch = _color_dim("└─")
+        line1 = f"{branch} {age_styled}  {sid_display}"
+        line2 = f"      {filename}"
+    else:
+        agent_label = _session_agent_label(prepared)
+        branch = _color_dim("└─" if is_last_child else "├─")
+        indent = "   "
+        cont = _color_dim("│") + "  " if not is_last_child else "   "
+        badge = f"  {_color(f'[{agent_label}]', COLOR_MAGENTA)}" if agent_label else ""
+        line1 = f"{indent}{branch} {age_styled}{badge}  {sid_display}"
+        line2 = f"{indent}{cont}{filename}"
+
+    return [line1, line2]
 
 
 def _latest_session_sort_key(
@@ -120,6 +144,8 @@ class SourceExportContext:
     output_md: bool
     output_json: bool
     compactions_only: bool
+    warn_if_no_projects: bool = True
+    show_source_header: bool = False
 
 
 @dataclass(frozen=True)
@@ -406,11 +432,11 @@ def _render_prepared_session_statuses(
     prepared_sessions: list[_PreparedSession],
 ) -> list[str]:
     if source.source_name != "opencode":
-        return [
-            _session_progress_line(prepared, source.source_name)
-            for prepared in prepared_sessions
-            if prepared.is_selected
-        ]
+        result: list[str] = []
+        for prepared in prepared_sessions:
+            if prepared.is_selected:
+                result.extend(_session_progress_lines(prepared, source.source_name))
+        return result
 
     (
         roots,
@@ -425,20 +451,28 @@ def _render_prepared_session_statuses(
         depth: int,
         *,
         ancestor_selected: bool = False,
+        is_last_child: bool = True,
     ) -> None:
         has_selected = subtree_has_selected.get(prepared.session_ref.sid, False)
         branch_selected = ancestor_selected or prepared.is_selected
         if not has_selected and not branch_selected:
             return
-        lines.append(
-            _session_progress_line(
+        lines.extend(
+            _session_progress_lines(
                 prepared,
                 source.source_name,
                 depth=depth,
+                is_last_child=is_last_child,
             ),
         )
-        for child in children_by_parent.get(prepared.session_ref.sid, []):
-            append_lines(child, depth + 1, ancestor_selected=branch_selected)
+        children = children_by_parent.get(prepared.session_ref.sid, [])
+        for i, child in enumerate(children):
+            append_lines(
+                child,
+                depth + 1,
+                ancestor_selected=branch_selected,
+                is_last_child=(i == len(children) - 1),
+            )
 
     for root in roots:
         append_lines(root, 0)
@@ -448,13 +482,19 @@ def _render_prepared_session_statuses(
         for parent_id in out_of_scope_parents.values():
             proj_name = source.get_session_project_name(parent_id) or "Unknown Project"
             project_counts[proj_name] = project_counts.get(proj_name, 0) + 1
-        
+
         if project_counts:
             lines.append("")
             total_out_of_scope = len(out_of_scope_parents)
-            summary_parts = [f"{name} ({count})" for name, count in sorted(project_counts.items())]
+            summary_parts = [
+                f"{name} ({count})" for name, count in sorted(project_counts.items())
+            ]
             summary_str = ", ".join(summary_parts)
-            lines.append(_color_dim(f"ℹ️ {total_out_of_scope} sessions was started in different folders: {summary_str}"))
+            footer = (
+                f"\N{INFORMATION SOURCE}️ {total_out_of_scope} sessions was started"
+                f" in different folders: {summary_str}"
+            )
+            lines.append(_color_dim(footer))
 
     return lines
 
@@ -531,11 +571,15 @@ def _export_project_sessions(
     return next_recent_session_id, next_recent_paths, prepared_sessions
 
 
-def export_single_source(
+def export_single_source(  # noqa: C901
     source: StorageSource,
     context: SourceExportContext,
-) -> tuple[list[Path], str | None, Path | None, Path | None, Path | None]:
-    """Export sessions for one source and return generated output paths."""
+) -> tuple[list[Path], str | None, Path | None, Path | None, Path | None, int]:
+    """Export sessions for one source and return generated output paths.
+
+    Returns (written_outputs, recent_session_id, md_path, json_path, compactions_path,
+             most_recent_updated_ms).
+    """
     written_outputs: list[Path] = []
     most_recent_session_id: str | None = None
     recent_paths = _RecentOutputPaths()
@@ -543,9 +587,9 @@ def export_single_source(
 
     project_ids = source.resolve_project_ids(context.storage, context.root)
     if not project_ids:
-        if not context.args.quiet:
+        if not context.args.quiet and context.warn_if_no_projects:
             eprint(f"⚠️ No {source.source_name} projects found for {context.root}")
-        return written_outputs, None, None, None, None
+        return written_outputs, None, None, None, None, 0
 
     project_ids = _select_project_ids(source, context, project_ids)
 
@@ -561,13 +605,34 @@ def export_single_source(
             written_outputs=written_outputs,
             recent_paths=recent_paths,
         )
-        prepared_sessions.extend(project_prepared_sessions)
+        for ps in project_prepared_sessions:
+            if not any(
+                p.session_ref.sid == ps.session_ref.sid for p in prepared_sessions
+            ):
+                prepared_sessions.append(ps)
         if project_recent_session_id is not None:
             most_recent_session_id = project_recent_session_id
 
-    if not context.args.quiet and not context.args.output:
-        for line in _render_prepared_session_statuses(source, prepared_sessions):
+    suppress = (
+        context.args.quiet
+        or context.args.output
+        or getattr(context.args, "latest", False)
+    )
+    if not suppress:
+        lines = _render_prepared_session_statuses(source, prepared_sessions)
+        if lines and context.show_source_header:
+            eprint(f"▸ {_color(source.source_name, COLOR_CYAN)}")
+            eprint(_color(_SEPARATOR, COLOR_GRAY))
+        for line in lines:
             eprint(line)
+        if lines and context.show_source_header:
+            eprint("")
+
+    most_recent_updated_ms = (
+        max((ps.exported.updated_ms for ps in prepared_sessions), default=0)
+        if prepared_sessions
+        else 0
+    )
 
     return (
         written_outputs,
@@ -575,4 +640,5 @@ def export_single_source(
         recent_paths.md_path,
         recent_paths.json_path,
         recent_paths.compactions_path,
+        most_recent_updated_ms,
     )
